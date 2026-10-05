@@ -45,15 +45,22 @@ def find_singlep_log(species_dir):
     return None, "ambiguous_logs", ",".join(p.name for p in logs)
 
 
+def _site_dir_candidates(cx, site):
+    """Site folders are named both '1' and 'site1' (molecules A and B use 'siteN')."""
+    return [cx / n for n in (str(site), "site%d" % site) if (cx / n).is_dir()]
+
+
 def _resolve_complex(root, lab, ion):
     cx = root / complex_dir_name(lab.mol, ion)
     if not cx.is_dir():
         return None, "dir_not_found", cx.name
-    site_dir = cx / str(lab.site)
-    if not site_dir.is_dir():
+    cands = _site_dir_candidates(cx, lab.site)
+    if not cands:
         have = sorted(d.name for d in cx.iterdir() if d.is_dir())
         return None, "site_dir_not_found", "%s has: %s" % (cx.name, ",".join(have))
-    return find_singlep_log(site_dir)
+    if len(cands) > 1:
+        return None, "ambiguous_site_dirs", ",".join(c.name for c in cands)
+    return find_singlep_log(cands[0])
 
 
 def _resolve_bare(root, lab, entries):

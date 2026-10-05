@@ -95,3 +95,33 @@ def test_verify_recomputes_be_and_flags_a_wrong_row(tree, tmp_path, capsys):
     assert abs(res.loc["TG", "d_be"]) > 100
     out = capsys.readouterr().out
     assert "1 of 2" in out                              # only one BE matched
+
+
+def _full_set(root, cx_dir, mono_dir, cx_name):
+    sp = "OPT_h/singlep"
+    write_log(root / "010.Li_p" / sp / "Li_high_singlep.log", -7.0, +1, 1)
+    write_log(root / mono_dir / sp / "m_high_singlep.log", -100.0, -1, 20)
+    write_log(root / cx_dir / cx_name / sp / "c_high_singlep.log", -107.0, 0, 21)
+
+
+def test_site_folders_named_siteN_are_found(tmp_path):
+    root = tmp_path / "LONI_work_folder"
+    _full_set(root, "070.Li_C22H24BO3", "050.C22H24BO3_m", "site1")     # A uses 'site1'
+    be = be_table([("A1", "A", 1, "Li", -1.0)])
+    m = build_manifest(root, be).iloc[0]
+    assert m["category"] == "usable" and "site1" in m["complex_log"]
+
+
+def test_numeric_and_siteN_folders_both_present_is_flagged(tmp_path):
+    root = tmp_path / "LONI_work_folder"
+    _full_set(root, "070.Li_C22H24BO3", "050.C22H24BO3_m", "1")
+    (root / "070.Li_C22H24BO3" / "site1").mkdir()
+    m = build_manifest(root, be_table([("A1", "A", 1, "Li", -1.0)])).iloc[0]
+    assert m["complex_status"] == "ambiguous_site_dirs"
+
+
+def test_L2_2_alias_resolves_to_the_single_site_folder(tmp_path):
+    root = tmp_path / "LONI_work_folder"
+    _full_set(root, "080.Li_mol_L2", "050.mol_L2_m", "1")
+    m = build_manifest(root, be_table([("L2_2", "L2", 1, "Li", -62.8)])).iloc[0]
+    assert m["category"] == "usable"

@@ -16,7 +16,8 @@ explain the Li⁺ / NH4⁺ binding energies (BE) of the candidate monomer sites?
 
 Labels in `data/all_BE_values.xlsx`: `A2` = molecule A, site 2; molecules that already contain a
 digit get a second one (`M1_2` = molecule M1, site 2). `A` = C22H24BO3, `B` = C11H9N2O2S.
-TG complexes are in `060.*_p_TG_2/0/` (the `_TG_1` folders have no logs). A missing BE means
+Site folders are named `1` or `site1` (A and B use `siteN`); the table's `L2_2` is read as site 1 of L2
+(its only site folder - `verify` checks that guess numerically). TG complexes are in `060.*_p_TG_2/0/` (the `_TG_1` folders have no logs). A missing BE means
 the single-point log did not exist when the table was made. All rules live in
 `src/check_sensitivity_be/labels.py`.
 

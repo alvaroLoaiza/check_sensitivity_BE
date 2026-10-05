@@ -12,6 +12,7 @@ Folder rules (as described by the data's author; edit here if they change):
     ions            000.NH4_p , 010.Li_p
     bare monomers   050.*          (suffix varies: _m, _2m, none)
     complexes       060-080.*      <dir>/<site>/OPT_h/singlep/*.log
+                    where <site> is '1' or 'site1' (A and B use 'siteN')
     A = C22H24BO3,  B = C11H9N2O2S  (named by formula, not mol_<X>)
     TG complexes live in 060.<ion>_p_TG_2/0/ (the *_TG_1 dirs have no logs)
 """
@@ -30,6 +31,13 @@ NAMED = {
 }
 SINGLE_SITE = {"TG", "CH3SO3"}
 
+# Table labels that do not follow the folder numbering. The BE table calls the
+# single site of molecule L2 "L2_2", but 080.*_mol_L2 only has a '1' site folder
+# (and the slides show one site for L2). This is an assumption: `verify`
+# recomputes BE from the logs, so the table value for L2_2 will either match
+# the L2 site-1 logs or expose the guess as wrong.
+LABEL_ALIASES = {"L2_2": ("L2", 1)}
+
 _TWO_PART = re.compile(r"^(?P<mol>[A-Z]\d)_(?P<site>\d+)$")
 _ONE_PART = re.compile(r"^(?P<mol>[A-Z])(?P<site>\d+)$")
 
@@ -43,6 +51,9 @@ class Label:
 
 def parse_label(raw):
     raw = str(raw).strip()
+    if raw in LABEL_ALIASES:
+        mol, site = LABEL_ALIASES[raw]
+        return Label(raw, mol, site)
     if raw in SINGLE_SITE:
         return Label(raw, raw, 0)
     m = _TWO_PART.match(raw) or _ONE_PART.match(raw)

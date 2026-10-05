@@ -11,7 +11,8 @@ DATA = Path(__file__).resolve().parents[1] / "data" / "all_BE_values.xlsx"
 
 @pytest.mark.parametrize("raw,mol,site", [
     ("A1", "A", 1), ("C4", "C", 4), ("K5", "K", 5),
-    ("L1_1", "L1", 1), ("L2_2", "L2", 2), ("M1_2", "M1", 2), ("P1_6", "P1", 6), ("Q2_3", "Q2", 3),
+    ("L1_1", "L1", 1), ("L2_2", "L2", 1),  # alias: L2 has a single site folder, '1'
+     ("M1_2", "M1", 2), ("P1_6", "P1", 6), ("Q2_3", "Q2", 3),
     ("TG", "TG", 0), ("CH3SO3", "CH3SO3", 0),
 ])
 def test_parse_label(raw, mol, site):
