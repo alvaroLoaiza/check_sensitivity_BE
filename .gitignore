@@ -1,0 +1,15 @@
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# raw Gaussian output is huge and lives on OneDrive/LONI, never in git
+*.log
+*.chk
+*.fchk
+
+# generated artifacts - regenerate with the CLI
+outputs/
+manifest*.csv
+verify*.csv
+features*.csv

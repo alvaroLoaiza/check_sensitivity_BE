@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "check_sensitivity_be"
+version = "0.1.0"
+description = "Do local charge, functional-group proximity and frontier-orbital descriptors explain Li+ / NH4+ binding energies?"
+requires-python = ">=3.8"
+dependencies = ["numpy", "pandas", "openpyxl"]
+
+[project.optional-dependencies]
+analysis = ["scikit-learn", "shap", "matplotlib"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
