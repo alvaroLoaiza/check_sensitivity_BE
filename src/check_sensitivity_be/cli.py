@@ -4,10 +4,12 @@ Usage (from the repo root, after `py -m pip install -e .`):
     py -m check_sensitivity_be manifest --root "C:\\...\\LONI_work_folder"
     py -m check_sensitivity_be verify   --manifest manifest.csv
     py -m check_sensitivity_be features --manifest manifest.csv
+    py -m check_sensitivity_be analyze  --features features.csv --plots
 
 `manifest` only looks at folder names (fast, does not download OneDrive files).
 `verify` opens the logs and proves the mapping is right.
 `features` writes one descriptor row per (site, ion) to features.csv.
+`analyze` writes correlations, leave-one-molecule-out models and SHAP to analysis/.
 """
 import argparse
 import sys
@@ -162,6 +164,70 @@ def cmd_features(args):
     print("\nWrote %s" % args.output)
 
 
+def cmd_analyze(args):
+    try:
+        from . import analysis as an
+    except ImportError as e:
+        sys.exit("analyze needs the analysis extras: py -m pip install -e \".[analysis]\"  (%s)" % e)
+    df = pd.read_csv(args.features)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    pd.set_option("display.width", 200)
+    print("%s: %d rows (%s), %d molecules; all rows kept, proton-transfer rows included"
+          % (args.features, len(df), ", ".join("%s %d" % kv for kv in df["ion"].value_counts().sort_index().items()),
+             df["mol"].nunique()))
+
+    print("Correlations (%d bootstrap resamples of whole molecules)..." % args.n_boot, file=sys.stderr)
+    corr = an.correlations(df, n_boot=args.n_boot, seed=args.seed)
+    corr.to_csv(out / "correlations.csv", index=False)
+    print("\nStrongest correlations with BE (95% CI excludes 0), per ion:")
+    for ion, c in corr.groupby("ion"):
+        c = c[c["ci_excludes_0"]].reindex(c["rho"].abs().sort_values(ascending=False).index).dropna(subset=["n"])
+        print("  %s" % ion)
+        print(c.head(args.top)[["feature", "rho", "ci_lo", "ci_hi", "partial_rho_net_charge", "rho_charge_m1"]]
+              .round(2).to_string(index=False))
+
+    print("Models...", file=sys.stderr)
+    metrics, preds = an.models(df)
+    metrics.to_csv(out / "models.csv", index=False)
+    preds.to_csv(out / "predictions.csv", index=False)
+    fam = an.family_summary(metrics)
+    fam.to_csv(out / "family_summary.csv", index=False)
+
+    print("\nFull model, every feature (leave-one-molecule-out):")
+    full = metrics[metrics["kind"].isin(["full", "check"])]
+    print(full[["ion", "model", "n_features", "R2", "MAE", "MAE_proton_transfer", "MAE_other_rows"]]
+          .round(2).to_string(index=False))
+    print("\nPer family: R2 with the family alone, and R2 lost when it is removed from the full model:")
+    print(fam.pivot_table(index="family", columns="ion", values=["R2_alone", "R2_lost_vs_full"])
+          .reindex([f for f in an.FAMILY_ORDER if f in set(fam["family"])]).round(2).to_string())
+
+    pt = preds[(preds["proton_transfer"] == 1) & (preds["model"] == "full")]
+    if len(pt):
+        print("\nProton-transfer rows, full model (residual < 0: binds more strongly than predicted):")
+        print(pt[["label", "ion", "be_kjmol", "be_pred", "residual"]].round(1).to_string(index=False))
+
+    shap_f, shap_fam, shap_sum = an.shap_full(df)
+    shap_f.to_csv(out / "shap_features.csv", index=False)
+    shap_fam.to_csv(out / "shap_families.csv", index=False)
+    shap_sum.to_csv(out / "shap_summary.csv", index=False)
+    print("\nSHAP of the full model, mean |SHAP| per family (kJ/mol):")
+    print(shap_sum.pivot_table(index="family", columns="ion", values="mean_abs_shap_kjmol")
+          .reindex([f for f in an.FAMILY_ORDER if f in set(shap_sum["family"])]).round(1).to_string())
+
+    if args.plots:
+        try:
+            from . import plots
+        except ImportError as e:
+            sys.exit("--plots needs matplotlib: py -m pip install -e \".[analysis]\"  (%s)" % e)
+        plots.correlation_forest(corr, out / "correlations.png", top=args.top_plot)
+        plots.families(fam, an.FAMILY_ORDER, out / "families.png")
+        plots.parity(preds, metrics, "full", out / "parity_full.png")
+        plots.family_shap_strip(shap_fam, an.FAMILY_ORDER, out / "shap_families.png")
+        print("\nPlots written to %s" % out)
+    print("\nWrote correlations, models, family_summary, predictions, shap_* CSVs in %s" % out)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="check_sensitivity_be", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -186,6 +252,16 @@ def main(argv=None):
                    help="charge-shell cutoffs in Angstrom (default 3 4 5)")
     p.add_argument("-o", "--output", default="features.csv")
     p.set_defaults(func=cmd_features)
+
+    p = sub.add_parser("analyze", help="correlations, leave-one-molecule-out models, SHAP -> analysis/")
+    p.add_argument("--features", default="features.csv")
+    p.add_argument("--out", default="analysis", help="output folder (default: analysis)")
+    p.add_argument("--n-boot", type=int, default=2000, help="molecule bootstrap resamples (default 2000)")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--top", type=int, default=8, help="correlations to print per ion")
+    p.add_argument("--top-plot", type=int, default=25, help="features in the correlation plot")
+    p.add_argument("--plots", action="store_true", help="also write PNG plots (needs matplotlib)")
+    p.set_defaults(func=cmd_analyze)
 
     args = ap.parse_args(argv)
     args.func(args)

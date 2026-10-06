@@ -106,6 +106,7 @@ def feature_columns(radii=DEFAULT_RADII):
     for r in radii:
         t = "%g" % r
         cols += ["V_r" + t, "Efield_r" + t, "Qnet_r" + t, "n_env_r" + t]
+    cols += ["V_all", "Efield_all"]
     cols += ["nearest_atom_elem", "nearest_atom_dist", "nearest_atom_charge",
              "contact_group", "contact_dist"]
     for ct in CANONICAL_GROUP_TYPES:

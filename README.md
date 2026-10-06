@@ -89,6 +89,42 @@ does not take (bonded to S, in a ring, multiply bonded) is grouped as `N(other)`
 `src/check_sensitivity_be/features/`, ported from `gaussian16-on-hpc/scripts/bin/g16*.py`.
 `dist_<type>` is empty when the molecule has no group of that type.
 
+## Step 4 - statistics
+
+```
+py -m pip install -e ".[analysis]"
+py -m check_sensitivity_be analyze --plots
+```
+
+Reads `features.csv` (all rows kept, proton-transfer rows included) and uses every feature.
+Features are grouped into families, because features inside one family (V/E/Q at several radii,
+say) overlap too much to be separated one by one with about 55 rows per ion:
+
+| family | features |
+|---|---|
+| net charge (control) | `monomer_charge` |
+| (1) local charge | V, Efield, Qnet at every radius, `V_all`, `Efield_all`, `nearest_atom_charge`, `ion_charge_nbo` |
+| (2) proximity | `contact_dist`, `nearest_atom_dist`, `n_env_r*`, `dist_<group>` (empty = 10 Å), `count_<group>`, contact-group type |
+| (3) monomer orbitals | HOMO−2 … LUMO+2, the three gaps, their contact-group shares |
+| (4) ion LUMO | `gap_cross_eV` (within one ion this is −HOMO plus a constant, so it cannot be told apart from (3)) |
+| proton transfer | `proton_transfer`, `ion_NH_max` |
+
+Writes to `analysis/`:
+
+| file | contents |
+|---|---|
+| `correlations.csv` | per ion and feature: Spearman rho with BE, 95% CI from a bootstrap over whole molecules, partial rho with net charge removed, rho within net charge −1 only |
+| `models.csv`, `family_summary.csv` | ridge regression scored leave-one-molecule-out: the full model, each family alone, the full model without each family (R² lost = what the family adds), and checks without `ion_charge_nbo` |
+| `predictions.csv` | held-out prediction for every row and model |
+| `shap_features.csv`, `shap_families.csv`, `shap_summary.csv` | exact SHAP of the full linear model per row and feature (kJ/mol), summed per family; the split inside a family is arbitrary, the family totals are not |
+| `*.png` (with `--plots`) | correlation forest plot, family plot, parity plot of the full model, family SHAP strip |
+
+The bootstrap takes about a minute; `--n-boot 500` is faster for a quick look.
+
+The charge descriptors come from the complex, so they include the polarization and charge transfer
+that binding causes: a strong correlation shows they describe binding, not that the bare monomer
+predicts it.
+
 ## Notes for the analysis stage
 
 * **Net charge dominates BE** (dianion monomers reach −118 to −172 kJ/mol; neutral P1/Q1 sit near

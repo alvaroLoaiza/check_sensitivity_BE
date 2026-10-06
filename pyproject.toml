@@ -10,7 +10,7 @@ requires-python = ">=3.8"
 dependencies = ["numpy", "pandas", "openpyxl"]
 
 [project.optional-dependencies]
-analysis = ["scikit-learn", "shap", "matplotlib"]
+analysis = ["scikit-learn", "scipy", "matplotlib"]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]

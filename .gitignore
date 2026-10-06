@@ -10,6 +10,7 @@ __pycache__/
 
 # generated artifacts - regenerate with the CLI
 outputs/
+analysis/
 manifest*.csv
 verify*.csv
 features*.csv
