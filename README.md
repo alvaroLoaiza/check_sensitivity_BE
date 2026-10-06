@@ -45,12 +45,48 @@ and does not make OneDrive download anything.
 py -m check_sensitivity_be verify
 ```
 
-Opens the logs of every usable row and checks: charge balance and atom-count balance
-(complex = monomer + ion), normal termination, and that the BE recomputed from the logs
-matches the spreadsheet. Writes `verify.csv`. Any row that fails a check is listed - those
-are either a wrong folder mapping or a stale spreadsheet value.
+Opens the logs of every usable row and checks:
 
-## Notes for the analysis stages (not built yet)
+* charge balance and atom-count balance (complex = monomer + ion);
+* atom order: the complex lists the monomer atoms first and the ion atoms last;
+* normal termination of all three logs;
+* each single point ran on the final optimized geometry: its nuclear repulsion energy must
+  match the last one in an `OPT_h/*.log` (catches a singlep started from a stale `.chk`,
+  which is what happened to Q1_1 NH4); `no_opt_log` means there was nothing to compare with;
+* the BE recomputed from the logs matches the spreadsheet.
+
+Writes `verify.csv`. Rows listed in `data/exclusions.csv` are still checked but reported
+separately, not as failures.
+
+## Excluded rows
+
+`data/exclusions.csv` (`label, ion, reason`) lists rows left out on purpose. They stay in the
+spreadsheet; `features` skips them. Currently Q1_1 (both ions): its NH4 single point ran on a
+stale geometry.
+
+## Step 3 - features
+
+```
+py -m check_sensitivity_be features
+```
+
+Writes `features.csv`: one row per usable, non-excluded (site, ion), keyed by `label, mol, site,
+ion`, no file paths. `be_kjmol` is recomputed from the logs (the target).
+
+| from | columns |
+|---|---|
+| bare monomer log | `monomer_charge`, `homo_mon_eV`, `homo_mon_frac_contact` (share of the monomer HOMO on the contact group's atoms; sum of squared coefficients, a relative measure) |
+| bare monomer + bare ion | `gap_cross_eV` = LUMO(ion) − HOMO(monomer) |
+| complex, NBO charges | `ion_charge_nbo` (ion fragment total), `V_r*`, `Efield_r*`, `Qnet_r*`, `n_env_r*`, `nearest_atom_*` |
+| complex, geometry | `contact_group`, `contact_dist`, and `count_<type>` / `dist_<type>` for every group type |
+
+Charge shells and group detection use the **monomer atoms only**, so the four H atoms of NH4⁺
+never count as environment. Group distances are to the nearest contact atom (the O atoms of
+sulfonate/phosphonate/borate, any ring carbon, otherwise the heteroatom). Code:
+`src/check_sensitivity_be/features/`, ported from `gaussian16-on-hpc/scripts/bin/g16*.py`.
+`dist_<type>` is empty when the molecule has no group of that type.
+
+## Notes for the analysis stage
 
 * **Net charge dominates BE** (dianion monomers reach −118 to −172 kJ/mol; neutral P1/Q1 sit near
   −10 to −28). Monomer net charge is read from the log (`Charge = -1`), not from folder names,

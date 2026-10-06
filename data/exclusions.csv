@@ -1,0 +1,3 @@
+label,ion,reason
+Q1_1,NH4,"singlep ran on a stale RUN1 geometry (copy of Q1_NH4_..._R2_high.chk; the converged opt wrote _R3_high.chk). Nuclear repulsion 3906.2978 Ha in the singlep vs 3904.0777 Ha at the end of the opt. A singlep from the R3 chk would restore it."
+Q1_1,Li,"excluded together with Q1_1 NH4"
