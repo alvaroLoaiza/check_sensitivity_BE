@@ -173,3 +173,20 @@ def test_verify_flags_singlep_on_wrong_geometry(tmp_path, capsys):
     res = pd.read_csv(root / "v.csv").iloc[0]
     assert res["order_ok"] and res["geom_status"] == "mismatch" and res["geom_detail"] == "complex:mismatch"
     assert "1 mismatch" in capsys.readouterr().out
+
+
+def test_proton_transfer_is_flagged():
+    from check_sensitivity_be.features.extract import proton_transfer_check
+    atoms, _ = _nh4_near_oxygen()                      # O at 2.8 A from N, intact NH4+
+    mon, ion = [0], [1, 2, 3, 4, 5]
+    assert proton_transfer_check(atoms, 1, ion, mon)["proton_transfer"] == 0
+    atoms[2] = ("H", 1.80, 0.0, 0.0)                   # one H now 1.0 A from O, 1.8 A from N
+    out = proton_transfer_check(atoms, 1, ion, mon)
+    assert out["proton_transfer"] == 1 and out["ion_NH_max"] == pytest.approx(1.80)
+
+
+def test_nitrogen_not_caught_by_amine_rule_still_gets_a_group():
+    # N bonded to S: not an amine, previously no group at all
+    atoms = [("S", 0, 0, 0), ("N", 1.60, 0, 0), ("C", 2.30, 1.20, 0)]
+    labels = [g["label"] for g in classify_groups(atoms)]
+    assert "N(other)" in labels

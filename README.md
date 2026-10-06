@@ -77,12 +77,15 @@ ion`, no file paths. `be_kjmol` is recomputed from the logs (the target).
 |---|---|
 | bare monomer log | `monomer_charge`, `homo_mon_eV`, `homo_mon_frac_contact` (share of the monomer HOMO on the contact group's atoms; sum of squared coefficients, a relative measure) |
 | bare monomer + bare ion | `gap_cross_eV` = LUMO(ion) − HOMO(monomer) |
+| bare monomer, frontier orbitals | `mon_homo_m2_eV` … `mon_lumo_p2_eV` (HOMO−2 to LUMO+2), `mon_gap0/1/2_eV` = LUMO−HOMO, (LUMO+1)−(HOMO−1), (LUMO+2)−(HOMO−2), `mon_frac_contact_*` (share of each orbital on the contact group) |
+| complex, geometry of the ion | `proton_transfer` (1 if an NH4⁺ H is closer to a monomer N/O than to its own N), `ion_NH_max` (longest N–H in the ion) |
 | complex, NBO charges | `ion_charge_nbo` (ion fragment total), `V_r*`, `Efield_r*`, `Qnet_r*`, `n_env_r*`, `nearest_atom_*` |
 | complex, geometry | `contact_group`, `contact_dist`, and `count_<type>` / `dist_<type>` for every group type |
 
 Charge shells and group detection use the **monomer atoms only**, so the four H atoms of NH4⁺
 never count as environment. Group distances are to the nearest contact atom (the O atoms of
-sulfonate/phosphonate/borate, any ring carbon, otherwise the heteroatom). Code:
+sulfonate/phosphonate/borate, any ring carbon, otherwise the heteroatom). Any N the amine rule
+does not take (bonded to S, in a ring, multiply bonded) is grouped as `N(other)`. Code:
 `src/check_sensitivity_be/features/`, ported from `gaussian16-on-hpc/scripts/bin/g16*.py`.
 `dist_<type>` is empty when the molecule has no group of that type.
 

@@ -31,7 +31,7 @@ CC_AROMATIC = (1.33, 1.42)   # aromatic-ish C-C
 CANONICAL_GROUP_TYPES = [
     "sulfonate(SO3)", "sulfonyl(SO2)", "phosphonate(PO3)", "phosphonyl(PO2)",
     "borate/boronic(BOx)", "carbonyl(C=O)", "ether(C-O-C)",
-    "hydroxyl/similar(O-H)", "terminal_O(other)", "amine", "halide", "aromatic_ring",
+    "hydroxyl/similar(O-H)", "terminal_O(other)", "amine", "N(other)", "halide", "aromatic_ring",
 ]
 _CLUSTER_TYPES = {"sulfonate(SO3)", "sulfonyl(SO2)", "phosphonate(PO3)",
                   "phosphonyl(PO2)", "borate/boronic(BOx)"}
@@ -139,6 +139,13 @@ def classify_groups(atoms):
         if all(elem[j] in ("C", "H") for j in nb) and len(nb) in (2, 3):
             n_h = sum(1 for j in nb if elem[j] == "H")
             add("amine(N%s)" % ("H" * n_h), [i] + nb, i)
+
+    # every N the amine rule did not take (e.g. N bonded to S, ring or multiply
+    # bonded N), so an ion sitting on such an N still gets the right contact group
+    amine_n = {g["anchor"] for g in groups if g["label"].startswith("amine(")}
+    for i in range(n):
+        if elem[i] == "N" and i not in amine_n:
+            add("N(other)", [i] + [j for j, _ in adj[i]], i)
 
     for i in range(n):
         if elem[i] in ("F", "Cl", "Br", "I"):

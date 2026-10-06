@@ -57,3 +57,16 @@ def test_atom_order_monomer_first_ion_last():
     c, m, i = read_log_info(CX), read_log_info(MON), read_log_info(ION)
     assert c.atomic_numbers == m.atomic_numbers + i.atomic_numbers
     assert i.atomic_numbers == (3,)
+
+
+def test_monomer_frontier_orbitals(row):
+    # A1 bare monomer eigenvalues (Ha): HOMO-2 -0.22067, HOMO-1 -0.21463, HOMO -0.21189,
+    # LUMO 0.00072, LUMO+1 0.00173, LUMO+2 0.00244 (standalone g16orbitals, same file)
+    ev = 27.211386
+    assert row["mon_homo_m2_eV"] == pytest.approx(-0.22067 * ev)
+    assert row["mon_lumo_p2_eV"] == pytest.approx(0.00244 * ev)
+    assert row["mon_gap0_eV"] == pytest.approx((0.00072 + 0.21189) * ev)
+    assert row["mon_gap1_eV"] == pytest.approx((0.00173 + 0.21463) * ev)
+    assert row["mon_gap2_eV"] == pytest.approx((0.00244 + 0.22067) * ev)
+    for tag in ("homo_m2", "homo_m1", "lumo", "lumo_p1", "lumo_p2"):
+        assert 0.0 <= row["mon_frac_contact_" + tag] <= 1.0

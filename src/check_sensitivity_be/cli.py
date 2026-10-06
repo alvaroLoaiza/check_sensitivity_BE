@@ -151,6 +151,11 @@ def cmd_features(args):
     print("\n%d rows x %d columns; %d row(s) with extraction notes" % (len(df), df.shape[1], len(errs)))
     print("Contact group counts:")
     print(df.groupby(["ion", "contact_group"]).size().to_string())
+    pt = df[df["proton_transfer"] == 1]
+    if len(pt):
+        print("\nNH4+ proton moved onto the monomer (ion H closer to a monomer N/O than to its own N):")
+        print(pt[["label", "ion", "monomer_charge", "ion_charge_nbo", "ion_NH_max", "contact_group",
+                  "be_kjmol"]].to_string(index=False))
     if len(errs):
         print("\nRows with extraction notes:")
         print(errs[["label", "ion", "errors"]].to_string(index=False))
