@@ -3,6 +3,29 @@ import pandas as pd
 
 from .labels import ION_COLUMNS, parse_label
 
+_MINUS = str.maketrans({"\u2212": "-", "\u2013": "-", "\u2014": "-"})
+
+
+def _to_float(value, label, col):
+    """
+    Cell value -> float (NaN if empty). Text cells are accepted when they hold a
+    number (Excel 'number stored as text'); a typographic minus such as U+2212,
+    which is easy to paste in by accident, is read as '-'. Anything else stops
+    the run here, naming the cell, instead of failing later with a TypeError.
+    """
+    if pd.isna(value):
+        return float("nan")
+    if isinstance(value, str):
+        text = value.translate(_MINUS).strip()
+        if text == "":
+            return float("nan")
+        try:
+            return float(text)
+        except ValueError:
+            raise ValueError("Non-numeric BE in the spreadsheet: label %s, column %s, value %r"
+                             % (label, col, value)) from None
+    return float(value)
+
 
 def load_be_table(path):
     """
@@ -28,5 +51,5 @@ def load_be_table(path):
         lab = parse_label(r["label"])
         for col, ion in ION_COLUMNS.items():
             rows.append(dict(label=lab.raw, mol=lab.mol, site=lab.site, ion=ion,
-                             be_kjmol=r[col] if pd.notna(r[col]) else float("nan")))
+                             be_kjmol=_to_float(r[col], lab.raw, col)))
     return pd.DataFrame(rows)

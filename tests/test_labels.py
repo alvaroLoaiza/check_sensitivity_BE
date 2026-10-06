@@ -58,3 +58,18 @@ def test_complex_dir_name(mol, ion, expected):
 ])
 def test_bare_dir_matches(mol, dirname, expected):
     assert bare_dir_matches(mol, dirname) is expected
+
+
+def test_be_table_reads_text_numbers_and_unicode_minus(tmp_path):
+    import pandas as pd
+    import pytest
+    from check_sensitivity_be.be_table import load_be_table
+    p = tmp_path / "be.xlsx"
+    pd.DataFrame({"monomer": ["A1", "Q1_2"], "BE_NH4+": ["-58.542", "\u221228.413"],
+                  "BE_Li+": [-28.703, None]}).to_excel(p, index=False)
+    t = load_be_table(p).set_index(["label", "ion"])["be_kjmol"]
+    assert t[("A1", "NH4")] == -58.542 and t[("Q1_2", "NH4")] == -28.413
+    assert pd.isna(t[("Q1_2", "Li")])
+    pd.DataFrame({"monomer": ["A1"], "BE_NH4+": ["-58,542"], "BE_Li+": [1.0]}).to_excel(p, index=False)
+    with pytest.raises(ValueError, match="label A1"):
+        load_be_table(p)
