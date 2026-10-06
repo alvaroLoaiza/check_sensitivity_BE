@@ -164,68 +164,105 @@ def cmd_features(args):
     print("\nWrote %s" % args.output)
 
 
+def _analyze_target(an, df, target, out, args, title):
+    """Correlations, family models and SHAP for one target; CSVs (and PNGs) into `out`."""
+    out.mkdir(parents=True, exist_ok=True)
+    tag = "" if target == an.TARGET else "_" + target
+    print("\n" + "=" * 78 + "\n" + title + "\n" + "=" * 78)
+
+    print("Correlations for %s (%d bootstrap resamples)..." % (target, args.n_boot), file=sys.stderr)
+    corr = an.correlations(df, target=target, n_boot=args.n_boot, seed=args.seed)
+    corr.to_csv(out / ("correlations%s.csv" % tag), index=False)
+    print("\nStrongest correlations (95%% CI excludes 0), per ion; every feature is in "
+          "correlations%s.csv:" % tag)
+    for ion, c in corr.groupby("ion"):
+        c = c[c["ci_excludes_0"]]
+        c = c.reindex(c["rho"].abs().sort_values(ascending=False).index)
+        print("  %s" % ion)
+        print(c.head(args.top)[["family", "feature", "n", "rho", "ci_lo", "ci_hi", "partial_rho_net_charge"]]
+              .round(2).to_string(index=False))
+
+    print("Models for %s..." % target, file=sys.stderr)
+    metrics, preds = an.models(df, target=target)
+    metrics.to_csv(out / ("models%s.csv" % tag), index=False)
+    preds.to_csv(out / ("predictions%s.csv" % tag), index=False)
+    fam = an.family_summary(metrics)
+    fam.to_csv(out / ("family_summary%s.csv" % tag), index=False)
+    print("\nEvery feature together (leave-one-molecule-out):")
+    print(metrics[metrics["kind"].isin(["full", "check"])][
+        ["ion", "model", "n_features", "R2", "MAE", "MAE_proton_transfer", "MAE_other_rows"]]
+        .round(2).to_string(index=False))
+    order = [f for f in an.FAMILY_ORDER if f in set(fam["family"])]
+    print("\nPer family: R2 alone | R2 lost when removed | MAE added when removed, "
+          "on proton-transfer rows and on the rest:")
+    show = fam.set_index(["family", "ion"]).reindex(order, level=0).round(2)
+    print(show.to_string())
+
+    shap_f, shap_fam, shap_sum = an.shap_full(df, target=target)
+    shap_f.to_csv(out / ("shap_features%s.csv" % tag), index=False)
+    shap_fam.to_csv(out / ("shap_families%s.csv" % tag), index=False)
+    shap_sum.to_csv(out / ("shap_summary%s.csv" % tag), index=False)
+    print("\nSHAP of the full model: mean |SHAP| per family (kJ/mol) and its leading feature:")
+    print(shap_sum.set_index(["family", "ion"]).reindex(order, level=0)[
+        ["mean_abs_shap_kjmol", "lead_feature"]].round(1).to_string())
+
+    if args.plots:
+        from . import plots
+        plots.correlation_forest(corr, an.FAMILY_ORDER, out / ("correlations%s.png" % tag))
+        plots.families(fam, an.FAMILY_ORDER, out / ("families%s.png" % tag))
+        plots.parity(preds, metrics, "full", out / ("parity_full%s.png" % tag))
+        plots.family_shap_strip(shap_fam, shap_sum, an.FAMILY_ORDER, out / ("shap_families%s.png" % tag))
+
+
 def cmd_analyze(args):
     try:
         from . import analysis as an
+        if args.plots:
+            from . import plots  # noqa: F401
     except ImportError as e:
         sys.exit("analyze needs the analysis extras: py -m pip install -e \".[analysis]\"  (%s)" % e)
     df = pd.read_csv(args.features)
     out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    pd.set_option("display.width", 200)
+    pd.set_option("display.width", 220)
+    pd.set_option("display.max_columns", 20)
     print("%s: %d rows (%s), %d molecules; all rows kept, proton-transfer rows included"
           % (args.features, len(df), ", ".join("%s %d" % kv for kv in df["ion"].value_counts().sort_index().items()),
              df["mol"].nunique()))
 
-    print("Correlations (%d bootstrap resamples of whole molecules)..." % args.n_boot, file=sys.stderr)
-    corr = an.correlations(df, n_boot=args.n_boot, seed=args.seed)
-    corr.to_csv(out / "correlations.csv", index=False)
-    print("\nStrongest correlations with BE (95% CI excludes 0), per ion:")
-    for ion, c in corr.groupby("ion"):
-        c = c[c["ci_excludes_0"]].reindex(c["rho"].abs().sort_values(ascending=False).index).dropna(subset=["n"])
-        print("  %s" % ion)
-        print(c.head(args.top)[["feature", "rho", "ci_lo", "ci_hi", "partial_rho_net_charge", "rho_charge_m1"]]
-              .round(2).to_string(index=False))
+    _analyze_target(an, df, an.TARGET, out, args, "BINDING ENERGY, per ion  ->  %s" % out)
 
-    print("Models...", file=sys.stderr)
-    metrics, preds = an.models(df)
-    metrics.to_csv(out / "models.csv", index=False)
-    preds.to_csv(out / "predictions.csv", index=False)
-    fam = an.family_summary(metrics)
-    fam.to_csv(out / "family_summary.csv", index=False)
+    pairs = an.pair_frame(df)
+    sel = out / "selectivity"
+    sel.mkdir(parents=True, exist_ok=True)
+    pairs.to_csv(sel / "sites.csv", index=False)
+    mols = an.per_molecule(df)
+    mols.to_csv(sel / "molecules.csv", index=False)
+    print("\n%d sites have both ions; NH4+ binds more strongly at %d of them (dBE = BE_Li - BE_NH4 > 0)."
+          % (len(pairs), int((pairs["dBE"] > 0).sum())))
+    print("Most NH4+-selective sites:")
+    print(pairs.sort_values("dBE", ascending=False).head(args.top)[
+        ["label", "be_Li", "be_NH4", "dBE", "proton_transfer"]].round(1).to_string(index=False))
+    print("Least NH4+-selective (or Li+-selective) sites:")
+    print(pairs.sort_values("dBE").head(5)[["label", "be_Li", "be_NH4", "dBE", "proton_transfer"]]
+          .round(1).to_string(index=False))
 
-    print("\nFull model, every feature (leave-one-molecule-out):")
-    full = metrics[metrics["kind"].isin(["full", "check"])]
-    print(full[["ion", "model", "n_features", "R2", "MAE", "MAE_proton_transfer", "MAE_other_rows"]]
-          .round(2).to_string(index=False))
-    print("\nPer family: R2 with the family alone, and R2 lost when it is removed from the full model:")
-    print(fam.pivot_table(index="family", columns="ion", values=["R2_alone", "R2_lost_vs_full"])
-          .reindex([f for f in an.FAMILY_ORDER if f in set(fam["family"])]).round(2).to_string())
-
-    pt = preds[(preds["proton_transfer"] == 1) & (preds["model"] == "full")]
-    if len(pt):
-        print("\nProton-transfer rows, full model (residual < 0: binds more strongly than predicted):")
-        print(pt[["label", "ion", "be_kjmol", "be_pred", "residual"]].round(1).to_string(index=False))
-
-    shap_f, shap_fam, shap_sum = an.shap_full(df)
-    shap_f.to_csv(out / "shap_features.csv", index=False)
-    shap_fam.to_csv(out / "shap_families.csv", index=False)
-    shap_sum.to_csv(out / "shap_summary.csv", index=False)
-    print("\nSHAP of the full model, mean |SHAP| per family (kJ/mol):")
-    print(shap_sum.pivot_table(index="family", columns="ion", values="mean_abs_shap_kjmol")
-          .reindex([f for f in an.FAMILY_ORDER if f in set(shap_sum["family"])]).round(1).to_string())
+    _analyze_target(an, pairs, "dBE", sel, args,
+                    "SELECTIVITY dBE = BE_Li - BE_NH4 (> 0: NH4+ favoured), per site  ->  %s" % sel)
+    _analyze_target(an, pairs, "affinity", sel, args,
+                    "AFFINITY -(BE_Li + BE_NH4)/2, per site  ->  %s" % sel)
 
     if args.plots:
-        try:
-            from . import plots
-        except ImportError as e:
-            sys.exit("--plots needs matplotlib: py -m pip install -e \".[analysis]\"  (%s)" % e)
-        plots.correlation_forest(corr, out / "correlations.png", top=args.top_plot)
-        plots.families(fam, an.FAMILY_ORDER, out / "families.png")
-        plots.parity(preds, metrics, "full", out / "parity_full.png")
-        plots.family_shap_strip(shap_fam, an.FAMILY_ORDER, out / "shap_families.png")
-        print("\nPlots written to %s" % out)
-    print("\nWrote correlations, models, family_summary, predictions, shap_* CSVs in %s" % out)
+        from . import plots
+        plots.affinity_map(pairs["be_NH4"], pairs["be_Li"], pairs["label"], pairs["proton_transfer"] == 1,
+                           sel / "affinity_map_sites.png", "Per site (%d sites with both ions)" % len(pairs))
+        for kind, name in (("best", "best site per molecule"),
+                           ("boltzmann", "Boltzmann-weighted over sites, 298 K")):
+            m = mols.dropna(subset=["be_%s_Li" % kind, "be_%s_NH4" % kind])
+            plots.affinity_map(m["be_%s_NH4" % kind], m["be_%s_Li" % kind], m["mol"],
+                               m.get("proton_transfer_at_best_NH4", 0) == 1,
+                               sel / ("affinity_map_molecules_%s.png" % kind), "Per molecule: " + name)
+        print("\nPlots written to %s and %s" % (out, sel))
+    print("\nWrote CSVs to %s and %s" % (out, sel))
 
 
 def main(argv=None):
@@ -259,7 +296,6 @@ def main(argv=None):
     p.add_argument("--n-boot", type=int, default=2000, help="molecule bootstrap resamples (default 2000)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--top", type=int, default=8, help="correlations to print per ion")
-    p.add_argument("--top-plot", type=int, default=25, help="features in the correlation plot")
     p.add_argument("--plots", action="store_true", help="also write PNG plots (needs matplotlib)")
     p.set_defaults(func=cmd_analyze)
 

@@ -109,15 +109,24 @@ say) overlap too much to be separated one by one with about 55 rows per ion:
 | (4) ion LUMO | `gap_cross_eV` (within one ion this is −HOMO plus a constant, so it cannot be told apart from (3)) |
 | proton transfer | `proton_transfer`, `ion_NH_max` |
 
-Writes to `analysis/`:
+Writes to `analysis/` (binding energy, per ion):
 
 | file | contents |
 |---|---|
-| `correlations.csv` | per ion and feature: Spearman rho with BE, 95% CI from a bootstrap over whole molecules, partial rho with net charge removed, rho within net charge −1 only |
-| `models.csv`, `family_summary.csv` | ridge regression scored leave-one-molecule-out: the full model, each family alone, the full model without each family (R² lost = what the family adds), and checks without `ion_charge_nbo` |
+| `correlations.csv` | every feature, per ion: family, n, Spearman rho with BE, 95% CI from a bootstrap over whole molecules, partial rho with net charge removed, rho within net charge −1; `low_n` marks features present at fewer than 15 sites (e.g. most group distances) |
+| `models.csv`, `family_summary.csv` | ridge regression scored leave-one-molecule-out: the full model, each family alone, the full model without each family (R² lost, and MAE added on proton-transfer rows vs the rest), checks without `ion_charge_nbo` |
 | `predictions.csv` | held-out prediction for every row and model |
-| `shap_features.csv`, `shap_families.csv`, `shap_summary.csv` | exact SHAP of the full linear model per row and feature (kJ/mol), summed per family; the split inside a family is arbitrary, the family totals are not |
-| `*.png` (with `--plots`) | correlation forest plot, family plot, parity plot of the full model, family SHAP strip |
+| `shap_features.csv`, `shap_families.csv`, `shap_summary.csv` | exact SHAP of the full linear model per row and feature (kJ/mol), summed per family, with each family's leading feature |
+| `*.png` (with `--plots`) | every feature by family (correlations), family plot, parity plot, family SHAP strip coloured by the leading feature |
+
+and to `analysis/selectivity/`, one row per site that has both ions:
+
+| file | contents |
+|---|---|
+| `sites.csv` | `dBE` = BE_Li − BE_NH4 (> 0: NH4⁺ binds more strongly; the table's Diff), `affinity` = −(BE_Li + BE_NH4)/2, and the features of both complexes side by side (`@Li`, `@NH4`; monomer features once) |
+| `molecules.csv` | per molecule and ion: best site, Boltzmann-weighted BE over sites (298 K), plain mean, and the resulting dBE |
+| `*_dBE.*`, `*_affinity.*` | the same correlations, family models and SHAP with dBE or affinity as the target |
+| `affinity_map_*.png` | \|BE_NH4\| vs \|BE_Li\| per site and per molecule (best site, Boltzmann), proton transfer marked |
 
 The bootstrap takes about a minute; `--n-boot 500` is faster for a quick look.
 
