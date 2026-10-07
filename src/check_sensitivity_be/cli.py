@@ -5,6 +5,7 @@ Usage (from the repo root, after `py -m pip install -e .`):
     py -m check_sensitivity_be verify   --manifest manifest.csv
     py -m check_sensitivity_be features --manifest manifest.csv
     py -m check_sensitivity_be analyze  --features features.csv --plots
+    py -m check_sensitivity_be export   --labels L1_1 F3     (XYZ files of selected complexes)
 
 `manifest` only looks at folder names (fast, does not download OneDrive files).
 `verify` opens the logs and proves the mapping is right.
@@ -260,9 +261,23 @@ def cmd_analyze(args):
             m = mols.dropna(subset=["be_%s_Li" % kind, "be_%s_NH4" % kind])
             plots.affinity_map(m["be_%s_NH4" % kind], m["be_%s_Li" % kind], m["mol"],
                                m.get("proton_transfer_at_best_NH4", 0) == 1,
-                               sel / ("affinity_map_molecules_%s.png" % kind), "Per molecule: " + name)
+                               sel / ("affinity_map_molecules_%s.png" % kind), "Per molecule: " + name,
+                               what="molecules")
         print("\nPlots written to %s and %s" % (out, sel))
     print("\nWrote CSVs to %s and %s" % (out, sel))
+
+
+def cmd_export(args):
+    from .export import EXAMPLES, export
+    manifest = _read_manifest(args.manifest)
+    feats = pd.read_csv(args.features) if Path(args.features).is_file() else None
+    labels = args.labels or EXAMPLES
+    idx = export(manifest, labels, args.out, features=feats)
+    pd.set_option("display.width", 200)
+    cols = [c for c in ["label", "ion", "file", "be_kjmol", "contact_group", "proton_transfer",
+                        "ion_NH_max_geom", "note"] if c in idx]
+    print(idx[cols].round(2).to_string(index=False))
+    print("\nWrote %d XYZ files and index.csv to %s" % ((idx["file"] != "").sum(), args.out))
 
 
 def main(argv=None):
@@ -298,6 +313,13 @@ def main(argv=None):
     p.add_argument("--top", type=int, default=8, help="correlations to print per ion")
     p.add_argument("--plots", action="store_true", help="also write PNG plots (needs matplotlib)")
     p.set_defaults(func=cmd_analyze)
+
+    p = sub.add_parser("export", help="XYZ geometry of selected complexes (last orientation of the singlep log)")
+    p.add_argument("--labels", nargs="+", help="table labels, e.g. L1_1 F3 (default: a set of examples)")
+    p.add_argument("--manifest", default="manifest.csv")
+    p.add_argument("--features", default="features.csv", help="used only to annotate the files")
+    p.add_argument("-o", "--out", default="exports")
+    p.set_defaults(func=cmd_export)
 
     args = ap.parse_args(argv)
     args.func(args)

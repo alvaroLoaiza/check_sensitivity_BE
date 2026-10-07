@@ -153,12 +153,12 @@ def family_shap_strip(shap_fam, summary, order, path):
     plt.close(fig)
 
 
-def affinity_map(x_nh4, y_li, labels, pt, path, title, split=None):
+def affinity_map(x_nh4, y_li, labels, pt, path, title, split=None, what="sites"):
     """|BE_NH4| vs |BE_Li| with the diagonal (equal binding); below it NH4+ binds more strongly."""
     x, y = np.abs(np.asarray(x_nh4, float)), np.abs(np.asarray(y_li, float))
     pt = np.asarray(pt, bool)
     fig, ax = plt.subplots(figsize=(7.2, 6.4))
-    ax.scatter(x[~pt], y[~pt], s=24, label="sites" if split is None else "molecules")
+    ax.scatter(x[~pt], y[~pt], s=24, label=what)
     if pt.any():
         ax.scatter(x[pt], y[pt], s=60, marker="^", color="tab:red", label="proton transfer (NH$_4^+$)")
     for xi, yi, lab in zip(x, y, labels):

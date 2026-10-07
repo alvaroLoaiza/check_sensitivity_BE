@@ -147,3 +147,18 @@ predicts it.
   which is what lets the site atoms found in the complex be used to project the monomer's HOMO.
 
 Raw Gaussian output (`*.log`, `*.chk`) is git-ignored; it stays on OneDrive/LONI.
+
+## Exporting example geometries
+
+```
+py -m check_sensitivity_be export --labels L1_1 F3
+```
+
+Writes `exports/<label>_<ion>.xyz` for each requested label and ion: the geometry of the complex
+single point (last orientation block), monomer atoms first and ion atoms last. The comment line
+carries BE, contact group and distance, proton transfer, the longest N–H for NH4⁺, and which atoms
+are the ion; `exports/index.csv` lists them all. Without `--labels` a default set of examples is
+exported (proton transfer: L1_1, M1_2, L2_2, M2_1; NH4⁺-selective without transfer: F3, O3, N2;
+nearly unselective: A2). The files are small, so they can be shared or opened in
+`molecule_viewer.html`, which accepts plain XYZ lines.
+
