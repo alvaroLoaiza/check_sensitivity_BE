@@ -484,3 +484,36 @@ def same_group_pairs(pairs):
     out = pairs[a == b].copy()
     out["contact_group"] = a[a == b]
     return out
+
+
+# ------------------------------------------------------------- fitted equations
+def coefficients(df, target=TARGET):
+    """
+    The final model for each ion (or pair): the full ridge model fitted on ALL rows (the
+    same fit the SHAP values come from). Written two ways, both exact:
+
+      standardized:  y_hat = b0 + sum_j w_j * (x_j - mean_j) / sd_j      (w_j in kJ/mol per 1 SD)
+      raw units:     y_hat = c0 + sum_j a_j * x_j                         (a_j = w_j / sd_j)
+
+    with c0 = b0 - sum_j a_j * mean_j. Missing group distances are filled with DIST_FILL
+    first, exactly as in the fit. Overlapping features share their weight arbitrarily,
+    so individual weights are not effects; the equation as a whole is the prediction.
+    """
+    rows = []
+    for ion, g in df.groupby("ion"):
+        g = g.dropna(subset=[target])
+        x, fam = design_matrix(g)
+        model = _ridge().fit(x.values, g[target].values)
+        sc, rg = model.named_steps["standardscaler"], model.named_steps["ridgecv"]
+        a = rg.coef_ / sc.scale_
+        c0 = rg.intercept_ - np.sum(a * sc.mean_)
+        rows.append(dict(ion=ion, target=target, feature="(intercept)", family="", mean=np.nan, sd=np.nan,
+                         weight_per_sd=rg.intercept_, weight_per_unit=c0, alpha=rg.alpha_, n_rows=len(g),
+                         n_features=x.shape[1]))
+        for j, c in enumerate(x.columns):
+            rows.append(dict(ion=ion, target=target, feature=c, family=fam[c], mean=sc.mean_[j], sd=sc.scale_[j],
+                             weight_per_sd=rg.coef_[j], weight_per_unit=a[j], alpha=rg.alpha_, n_rows=len(g),
+                             n_features=x.shape[1]))
+    out = pd.DataFrame(rows)
+    out["abs_weight_per_sd"] = out["weight_per_sd"].abs().where(out["feature"] != "(intercept)")
+    return out

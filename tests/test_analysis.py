@@ -163,3 +163,20 @@ def test_same_group_pairs_keeps_matching_contacts_only():
     p = pd.DataFrame({"contact_group@Li": ["a", "b"], "contact_group@NH4": ["a", "c"], "dBE": [1.0, 2.0]})
     s = an.same_group_pairs(p)
     assert list(s.contact_group) == ["a"]
+
+
+def test_coefficients_reproduce_the_fitted_predictions():
+    df = _synthetic()
+    coef = an.coefficients(df)
+    feats, _, _ = an.shap_full(df)
+    for ion in ("Li", "NH4"):
+        c = coef[coef.ion == ion]
+        g = df[df.ion == ion]
+        x, _ = an.design_matrix(g)
+        terms = c[c.feature != "(intercept)"].set_index("feature")
+        c0 = c[c.feature == "(intercept)"].weight_per_unit.iloc[0]
+        raw = c0 + x[terms.index].values @ terms.weight_per_unit.values
+        std = c[c.feature == "(intercept)"].weight_per_sd.iloc[0] + (
+            (x[terms.index].values - terms["mean"].values) / terms["sd"].values) @ terms.weight_per_sd.values
+        pred = feats[feats.ion == ion]["pred"].values
+        assert np.allclose(raw, pred) and np.allclose(std, pred)

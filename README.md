@@ -128,6 +128,12 @@ and to `analysis/selectivity/`, one row per site that has both ions:
 | `*_dBE.*`, `*_affinity.*` | the same correlations, family models and SHAP with dBE or affinity as the target |
 | `affinity_map_*.png` | \|BE_NH4\| vs \|BE_Li\| per site and per molecule (best site, Boltzmann), proton transfer marked |
 
+`coefficients*.csv` holds the final model for each target: the full ridge model fitted on all rows
+(the fit the SHAP values come from), as an exact equation
+ŷ = b0 + Σ w_j (x_j − mean_j)/sd_j (`weight_per_sd`, kJ/mol per standard deviation) or
+ŷ = c0 + Σ a_j x_j (`weight_per_unit`). Overlapping features share weight arbitrarily, so single
+weights are not effects; the held-out R² comes from refitting this model once per left-out molecule.
+
 Functional groups (in `analysis/` and, for dBE and affinity, in `analysis/selectivity/`):
 
 | file | contents |

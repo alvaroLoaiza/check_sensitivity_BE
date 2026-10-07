@@ -199,6 +199,16 @@ def _analyze_target(an, df, target, out, args, title):
     show = fam.set_index(["family", "ion"]).reindex(order, level=0).round(2)
     print(show.to_string())
 
+    coef = an.coefficients(df, target=target)
+    coef.to_csv(out / ("coefficients%s.csv" % tag), index=False)
+    print("\nFinal model (fitted on all rows): y = b0 + sum_j w_j (x_j - mean_j)/sd_j; largest weights "
+          "(kJ/mol per 1 SD); all weights in coefficients%s.csv:" % tag)
+    for ion, c in coef.groupby("ion"):
+        b0 = c[c["feature"] == "(intercept)"].iloc[0]
+        print("  %s: b0 = %.2f kJ/mol, %d features, ridge alpha = %g" % (ion, b0["weight_per_sd"], b0["n_features"], b0["alpha"]))
+        top = c[c["feature"] != "(intercept)"].sort_values("abs_weight_per_sd", ascending=False).head(args.top)
+        print(top[["family", "feature", "weight_per_sd", "weight_per_unit", "mean", "sd"]].round(3).to_string(index=False))
+
     shap_f, shap_fam, shap_sum = an.shap_full(df, target=target)
     shap_f.to_csv(out / ("shap_features%s.csv" % tag), index=False)
     shap_fam.to_csv(out / ("shap_families%s.csv" % tag), index=False)
