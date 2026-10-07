@@ -324,3 +324,163 @@ def per_molecule(df):
         if "be_%s_Li" % kind in m and "be_%s_NH4" % kind in m:
             m["dBE_%s" % kind] = m["be_%s_Li" % kind] - m["be_%s_NH4" % kind]
     return m.reset_index()
+
+
+# ------------------------------------------------------------- functional groups
+from .features.groups import CANONICAL_GROUP_TYPES, safe_name  # noqa: E402
+
+_PRETTY = {safe_name(t): t for t in CANONICAL_GROUP_TYPES}
+GROUP_MIN_MOL = 3          # a group's effect is estimated only if it occurs in >= this many molecules
+REF_GROUP = "sulfonate(SO3)"
+
+
+def _contact_col(df):
+    return "contact_group" if "contact_group" in df.columns else None
+
+
+def group_contact_table(df, target=TARGET, group_col="contact_group"):
+    """Per ion and contact group: sites, molecules, median/min/max of the target, net charges present."""
+    rows = []
+    for ion, g in df.dropna(subset=[target, group_col]).groupby("ion"):
+        for grp, h in g.groupby(group_col):
+            rows.append(dict(ion=ion, target=target, contact_group=grp, n_sites=len(h), n_molecules=h["mol"].nunique(),
+                             median=h[target].median(), min=h[target].min(), max=h[target].max(),
+                             net_charges=",".join(str(int(v)) for v in sorted(h["monomer_charge"].unique())),
+                             proton_transfer_sites=int((h.get("proton_transfer", 0) == 1).sum())))
+    t = pd.DataFrame(rows)
+    return t.sort_values(["ion", "median"]) if len(t) else t
+
+
+def _ols(X, y):
+    return np.linalg.lstsq(X, y, rcond=None)[0]
+
+
+def _boot_molecules(g, fit, n_boot, rng):
+    """Refit on molecule-bootstrap samples; fit returns a Series or None (sample unusable)."""
+    mols = g["mol"].unique()
+    idx = {m: np.flatnonzero(g["mol"].values == m) for m in mols}
+    draws = []
+    for _ in range(n_boot):
+        s = np.concatenate([idx[m] for m in rng.choice(mols, len(mols))])
+        r = fit(g.iloc[s])
+        if r is not None:
+            draws.append(r)
+    return pd.DataFrame(draws)
+
+
+def contact_group_effects(df, target=TARGET, group_col="contact_group", ref=REF_GROUP,
+                          min_mol=GROUP_MIN_MOL, n_boot=2000, seed=0):
+    """
+    target ~ contact group (one-hot, relative to `ref`) + monomer net charge, per ion, on the
+    sites whose contact group occurs in >= min_mol molecules. 95% intervals from refitting on
+    molecule-bootstrap samples. Effect > 0: weaker binding than at `ref` (for BE).
+    """
+    rng = np.random.default_rng(seed)
+    rows = []
+    for ion, g in df.dropna(subset=[target, group_col]).groupby("ion"):
+        nm = g.groupby(group_col)["mol"].nunique()
+        keep = sorted(nm[nm >= min_mol].index)
+        if ref not in keep or len(keep) < 2:
+            continue
+        g = g[g[group_col].isin(keep)]
+        others = [k for k in keep if k != ref]
+
+        def fit(h):
+            if set(h[group_col]) != set(keep) or h["monomer_charge"].nunique() < 2:
+                return None
+            X = np.column_stack([np.ones(len(h)), h["monomer_charge"].values] +
+                                [(h[group_col] == k).values.astype(float) for k in others])
+            return pd.Series(_ols(X, h[target].values)[1:], index=["net charge"] + others)
+
+        est = fit(g)
+        if est is None:
+            continue
+        bs = _boot_molecules(g, fit, n_boot, rng)
+        for k in est.index:
+            rows.append(dict(ion=ion, target=target, term=k, relative_to=ref if k != "net charge" else "per unit charge",
+                             effect=est[k], ci_lo=bs[k].quantile(0.025), ci_hi=bs[k].quantile(0.975),
+                             n_sites=int((g[group_col] == k).sum()) if k != "net charge" else len(g),
+                             n_molecules=int(g.loc[g[group_col] == k, "mol"].nunique()) if k != "net charge"
+                             else g["mol"].nunique(),
+                             n_boot_used=len(bs)))
+    return pd.DataFrame(rows)
+
+
+def _dist_cols(df, suffix=""):
+    return [c for c in df.columns if c.startswith("dist_") and c.endswith(suffix)
+            and (suffix or "@" not in c)]
+
+
+def group_distance_effects(df, target=TARGET, min_mol=GROUP_MIN_MOL, n_boot=2000, seed=0, suffix=""):
+    """
+    How a functional group affects the target as a function of its distance from the ion:
+        target = b0 + gamma * net_charge + sum_g beta_g / d_g
+    d_g = distance (Angstrom) from the ion to the nearest group of type g; 1/d_g = 0 when the
+    molecule has no such group. beta_g / d is then the group's contribution at distance d
+    (kJ/mol), the same 1/d decay as a point charge. Only groups present in >= min_mol molecules.
+    Returns (coefficients with molecule-bootstrap intervals, partial residuals for plotting,
+             bootstrap draws).
+    """
+    rng = np.random.default_rng(seed)
+    coef_rows, resid_rows, draws_all = [], [], []
+    for ion, g in df.dropna(subset=[target]).groupby("ion"):
+        cols = [c for c in _dist_cols(g, suffix)
+                if g.loc[g[c].notna(), "mol"].nunique() >= min_mol]
+        if not cols:
+            continue
+        inv = pd.DataFrame({c: 1.0 / g[c] for c in cols}).fillna(0.0)
+        names = ["net charge"] + cols
+
+        def design(h_inv, h):
+            return np.column_stack([np.ones(len(h)), h["monomer_charge"].values, h_inv.values])
+
+        def fit(h):
+            hi = pd.DataFrame({c: 1.0 / h[c] for c in cols}).fillna(0.0)
+            if (hi == 0).all().any() or h["monomer_charge"].nunique() < 2:
+                return None
+            return pd.Series(_ols(design(hi, h), h[target].values)[1:], index=names)
+
+        est = fit(g)
+        if est is None:
+            continue
+        gb = g.reset_index(drop=True)
+        bs = _boot_molecules(gb, fit, n_boot, rng)
+        X = design(inv, g)
+        b = _ols(X, g[target].values)
+        fitted = X @ b
+        for j, c in enumerate(cols):
+            nsite = int(g[c].notna().sum())
+            coef_rows.append(dict(ion=ion, target=target, group=_PRETTY.get(c.split("@")[0][5:], c.split("@")[0][5:]), column=c,
+                                  beta_kjmol_A=est[c], ci_lo=bs[c].quantile(0.025), ci_hi=bs[c].quantile(0.975),
+                                  effect_at_3A=est[c] / 3, effect_at_5A=est[c] / 5,
+                                  n_sites_with_group=nsite, n_molecules_with_group=int(g.loc[g[c].notna(), "mol"].nunique()),
+                                  n_boot_used=len(bs)))
+            # partial residual: target minus everything except this group's term
+            part = g[target].values - fitted + b[2 + j] * inv[c].values
+            m = g[c].notna().values
+            resid_rows.append(pd.DataFrame(dict(ion=ion, target=target, group=_PRETTY.get(c.split("@")[0][5:], c.split("@")[0][5:]), label=g["label"].values[m],
+                                                distance=g[c].values[m], partial_residual=part[m],
+                                                proton_transfer=(g["proton_transfer"].values[m] == 1).astype(int)
+                                                if "proton_transfer" in g else 0)))
+        coef_rows.append(dict(ion=ion, target=target, group="net charge", column="monomer_charge",
+                              beta_kjmol_A=est["net charge"], ci_lo=bs["net charge"].quantile(0.025),
+                              ci_hi=bs["net charge"].quantile(0.975), n_boot_used=len(bs)))
+        d = bs.copy()
+        d["ion"] = ion
+        d["target"] = target
+        draws_all.append(d)
+    return (pd.DataFrame(coef_rows),
+            pd.concat(resid_rows, ignore_index=True) if resid_rows else pd.DataFrame(),
+            pd.concat(draws_all, ignore_index=True) if draws_all else pd.DataFrame())
+
+
+def same_group_pairs(pairs):
+    """Selectivity rows where Li+ and NH4+ touch the same group type, with that type as contact_group."""
+    if "contact_group" in pairs.columns:
+        return pairs.copy()
+    a, b = pairs.get("contact_group@Li"), pairs.get("contact_group@NH4")
+    if a is None or b is None:
+        return pairs.iloc[0:0]
+    out = pairs[a == b].copy()
+    out["contact_group"] = a[a == b]
+    return out

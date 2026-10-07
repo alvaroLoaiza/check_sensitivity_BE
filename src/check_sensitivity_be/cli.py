@@ -207,12 +207,62 @@ def _analyze_target(an, df, target, out, args, title):
     print(shap_sum.set_index(["family", "ion"]).reindex(order, level=0)[
         ["mean_abs_shap_kjmol", "lead_feature"]].round(1).to_string())
 
+    _group_block(an, df, target, out, args, tag)
+
     if args.plots:
         from . import plots
         plots.correlation_forest(corr, an.FAMILY_ORDER, out / ("correlations%s.png" % tag))
         plots.families(fam, an.FAMILY_ORDER, out / ("families%s.png" % tag))
         plots.parity(preds, metrics, "full", out / ("parity_full%s.png" % tag))
         plots.family_shap_strip(shap_fam, shap_sum, an.FAMILY_ORDER, out / ("shap_families%s.png" % tag))
+
+
+def _group_block(an, df, target, out, args, tag):
+    """Functional groups: per contact group, charge-adjusted contact-group effects, and effects vs distance."""
+    pair = (df["ion"] == an.PAIR).all()
+    cdf = an.same_group_pairs(df) if pair else df
+    table = an.group_contact_table(cdf, target)
+    table.to_csv(out / ("groups_contact%s.csv" % tag), index=False)
+    eff = an.contact_group_effects(cdf, target, n_boot=args.n_boot, seed=args.seed)
+    eff.to_csv(out / ("groups_effects%s.csv" % tag), index=False)
+    positions = [("@NH4", "NH4+ position"), ("@Li", "Li+ position")] if pair else [("", "ion position")]
+    dist_out = []
+    for suffix, where in positions:
+        coef, resid, draws = an.group_distance_effects(df, target, n_boot=args.n_boot, seed=args.seed, suffix=suffix)
+        if coef.empty:
+            continue
+        coef.insert(2, "distances_from", where)
+        resid.insert(2, "distances_from", where)
+        dist_out.append((suffix, where, coef, resid, draws))
+    if dist_out:
+        pd.concat([c for _, _, c, _, _ in dist_out]).to_csv(out / ("groups_distance%s.csv" % tag), index=False)
+        pd.concat([r for _, _, _, r, _ in dist_out]).to_csv(out / ("groups_distance_points%s.csv" % tag), index=False)
+
+    note = " (sites where both ions touch the same group)" if pair else ""
+    print("\nFunctional groups at the contact%s: %s by contact group" % (note, target))
+    print(table[["ion", "contact_group", "n_sites", "n_molecules", "median", "min", "max", "net_charges"]]
+          .round(1).to_string(index=False))
+    if len(eff):
+        print("\nContact-group effect with net charge held fixed (relative to %s; groups in >= %d molecules; "
+              "95%% interval from molecule bootstrap):" % (an.REF_GROUP, an.GROUP_MIN_MOL))
+        print(eff[["ion", "term", "effect", "ci_lo", "ci_hi", "n_sites", "n_molecules"]].round(1).to_string(index=False))
+    for suffix, where, coef, _, _ in dist_out:
+        print("\nGroup effect vs distance, %s = b0 + gamma*charge + sum beta_g/d_g (d from the %s; "
+              "beta/d = the group's contribution at distance d):" % (target, where))
+        cols = ["ion", "group", "beta_kjmol_A", "ci_lo", "ci_hi", "effect_at_3A", "effect_at_5A",
+                "n_sites_with_group", "n_molecules_with_group"]
+        print(coef[cols].round(1).to_string(index=False))
+
+    if args.plots:
+        from . import plots
+        if len(eff):
+            plots.group_effects(eff, out / ("groups_effects%s.png" % tag),
+                                "Contact group, net charge held fixed%s" % note)
+        for suffix, where, coef, resid, draws in dist_out:
+            name = "groups_distance%s%s.png" % (tag, suffix.replace("@", "_at_"))
+            plots.group_distance(resid, coef, draws, out / name,
+                                 "Effect of each functional group vs its distance (from the %s); line = beta/d, band = 95%%"
+                                 % where)
 
 
 def cmd_analyze(args):

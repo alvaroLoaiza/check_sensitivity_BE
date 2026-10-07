@@ -180,3 +180,97 @@ def affinity_map(x_nh4, y_li, labels, pt, path, title, split=None, what="sites")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
+
+
+ION_COLOR = {"Li": "tab:blue", "NH4": "tab:orange", "Li-NH4": "tab:purple"}
+
+
+def group_effects(eff, path, title):
+    """Contact-group effects relative to the reference group, with 95% intervals, one marker per ion."""
+    e = eff[eff["term"] != "net charge"]
+    if e.empty:
+        return
+    groups = sorted(e["term"].unique(), key=lambda g: e[e["term"] == g]["effect"].mean())
+    ions = list(e["ion"].unique())
+    fig, ax = plt.subplots(figsize=(7.5, 0.6 * len(groups) + 1.6))
+    for k, ion in enumerate(ions):
+        sub = e[e["ion"] == ion].set_index("term")
+        off = (k - (len(ions) - 1) / 2) * 0.22
+        for i, g in enumerate(groups):
+            if g not in sub.index:
+                continue
+            r = sub.loc[g]
+            ax.errorbar(r["effect"], i + off, xerr=[[max(r["effect"] - r["ci_lo"], 0)], [max(r["ci_hi"] - r["effect"], 0)]],
+                        fmt="o", color=ION_COLOR.get(ion, "k"), capsize=3, label=ION_LABEL.get(ion, ion) if i == 0 or g == groups[0] else None)
+            ax.annotate("%d mol" % r["n_molecules"], (r["ci_hi"], i + off), xytext=(4, -3), textcoords="offset points",
+                        fontsize=7, color="0.4")
+    ax.axvline(0, color="k", lw=0.8)
+    ax.set_yticks(range(len(groups)))
+    ax.set_yticklabels(groups)
+    ref = e["relative_to"].iloc[0]
+    t = e["target"].iloc[0]
+    ax.set_xlabel("effect on %s relative to %s, net charge held fixed (kJ/mol)" % (TARGET_LABEL.get(t, t), ref))
+    ax.set_title(title, fontsize=10)
+    h, l = ax.get_legend_handles_labels()
+    seen = {}
+    for hh, ll in zip(h, l):
+        seen.setdefault(ll, hh)
+    ax.legend(seen.values(), seen.keys(), fontsize=8, loc="best")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def group_distance(resid, coef, draws, path, title):
+    """
+    One panel per functional group: partial residual of the target against the distance from
+    the ion to the nearest group of that type, with the fitted beta/d curve and its 95% band.
+    """
+    if resid.empty:
+        return
+    groups = list(dict.fromkeys(resid["group"]))
+    nc = 3
+    nr = int(np.ceil(len(groups) / nc))
+    fig, axes = plt.subplots(nr, nc, figsize=(4.3 * nc, 3.4 * nr), squeeze=False)
+    for ax, g in zip(axes.flat, groups):
+        d = np.linspace(1.6, max(10, resid[resid["group"] == g]["distance"].max() + 0.5), 200)
+        for ion in resid["ion"].unique():
+            r = resid[(resid["group"] == g) & (resid["ion"] == ion)]
+            if r.empty:
+                continue
+            col = ION_COLOR.get(ion, "k")
+            pt = r["proton_transfer"] == 1
+            ax.scatter(r.loc[~pt, "distance"], r.loc[~pt, "partial_residual"], s=16, color=col, alpha=0.8,
+                       label=ION_LABEL.get(ion, ion))
+            if pt.any():
+                ax.scatter(r.loc[pt, "distance"], r.loc[pt, "partial_residual"], s=50, marker="^", color="tab:red",
+                           edgecolors="k", linewidths=0.5, label="proton transfer")
+            c = coef[(coef["ion"] == ion) & (coef["group"] == g)]
+            if c.empty:
+                continue
+            c = c.iloc[0]
+            ax.plot(d, c["beta_kjmol_A"] / d, color=col, lw=1.6)
+            dr = draws[draws["ion"] == ion][c["column"]].dropna().values if c["column"] in draws else []
+            if len(dr):
+                band = np.percentile(np.outer(dr, 1 / d), [2.5, 97.5], axis=0)
+                ax.fill_between(d, band[0], band[1], color=col, alpha=0.15, lw=0)
+            ax.text(0.98, 0.04 + 0.09 * list(resid["ion"].unique()).index(ion),
+                    "%s: %.0f/d  [%.0f, %.0f]" % (ION_LABEL.get(ion, ion), c["beta_kjmol_A"], c["ci_lo"], c["ci_hi"]),
+                    transform=ax.transAxes, ha="right", fontsize=7, color=col)
+        ax.axhline(0, color="k", lw=0.6)
+        ax.set_title(g, fontsize=9)
+        ax.set_xlabel("distance from ion to nearest group (Å)", fontsize=8)
+        ax.set_ylabel("partial effect (kJ/mol)", fontsize=8)
+        ax.set_xlim(1.5, max(10, resid[resid["group"] == g]["distance"].max() + 0.5))
+    for ax in list(axes.flat)[len(groups):]:
+        ax.axis("off")
+    seen = {}
+    for ax in axes.flat:
+        for hh, ll in zip(*ax.get_legend_handles_labels()):
+            seen.setdefault(ll, hh)
+    if seen:
+        fig.legend(seen.values(), seen.keys(), loc="upper right", fontsize=8)
+    fig.suptitle(title, fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(path, dpi=150)
+    plt.close(fig)

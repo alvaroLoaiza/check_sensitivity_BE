@@ -128,6 +128,16 @@ and to `analysis/selectivity/`, one row per site that has both ions:
 | `*_dBE.*`, `*_affinity.*` | the same correlations, family models and SHAP with dBE or affinity as the target |
 | `affinity_map_*.png` | \|BE_NH4\| vs \|BE_Li\| per site and per molecule (best site, Boltzmann), proton transfer marked |
 
+Functional groups (in `analysis/` and, for dBE and affinity, in `analysis/selectivity/`):
+
+| file | contents |
+|---|---|
+| `groups_contact*.csv` | per contact group (the group the ion touches): sites, molecules, median/min/max of the target, net charges present |
+| `groups_effects*.csv/png` | target ~ contact group + net charge: each group's effect relative to sulfonate with net charge held fixed, 95% interval from a molecule bootstrap; only groups present in ≥ 3 molecules |
+| `groups_distance*.csv/png` | target = b0 + γ·charge + Σ β_g / d_g, with d_g the distance from the ion to the nearest group of type g (no such group: term = 0). β_g / d is the group's contribution at distance d; the plot shows partial residuals against d with the β/d curve and its 95% band. For dBE and affinity it is done with distances from the NH4⁺ position and from the Li⁺ position |
+
+For selectivity, contact-group results use only the sites where both ions touch the same group type.
+
 The bootstrap takes about a minute; `--n-boot 500` is faster for a quick look.
 
 The charge descriptors come from the complex, so they include the polarization and charge transfer

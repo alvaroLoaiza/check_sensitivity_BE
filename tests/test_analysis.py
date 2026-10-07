@@ -118,3 +118,48 @@ def test_analyze_command_writes_outputs(tmp_path):
         for name in ("families.png", "correlations.png", "selectivity/affinity_map_sites.png",
                      "selectivity/affinity_map_molecules_boltzmann.png", "selectivity/shap_families_dBE.png"):
             assert (tmp_path / "an" / name).is_file(), name
+
+
+def _groups_synthetic(seed=3, contact=True):
+    """Known truth: phosphonate 30 kJ/mol stronger than sulfonate at contact, halide 20 weaker;
+    a sulfonate at distance d adds -60/d, a halide +40/d."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    groups = ["sulfonate(SO3)", "phosphonate(PO3)", "halide"]
+    shift = {"sulfonate(SO3)": 0.0, "phosphonate(PO3)": -30.0, "halide": 20.0}
+    for ion in ("Li", "NH4"):
+        for m in range(18):
+            q = [-1, -2, 0][m % 3]
+            for s in range(3):
+                cg = groups[(m + s) % 3]
+                ds, dh = rng.uniform(2, 9), (rng.uniform(2.5, 9) if m % 2 else np.nan)
+                be = -40 + 25 * q + (shift[cg] if contact else 0) - 60 / ds + (40 / dh if dh == dh else 0) + rng.normal(0, 1)
+                rows.append(dict(label="G%d_%d" % (m, s), mol="G%d" % m, site=s, ion=ion, monomer_charge=q,
+                                 contact_group=cg, dist_sulfonate_SO3=ds, dist_halide=dh, proton_transfer=0,
+                                 be_kjmol=be))
+    return pd.DataFrame(rows)
+
+
+def test_contact_group_effects_recover_known_shifts():
+    eff = an.contact_group_effects(_groups_synthetic(), n_boot=200)
+    li = eff[eff.ion == "Li"].set_index("term")
+    assert li.loc["phosphonate(PO3)", "effect"] == pytest.approx(-30, abs=6)
+    assert li.loc["halide", "effect"] == pytest.approx(20, abs=6)
+    assert (li.ci_lo <= li.effect).all() and (li.effect <= li.ci_hi).all()
+    t = an.group_contact_table(_groups_synthetic())
+    assert set(t.columns) >= {"n_sites", "n_molecules", "median"}
+
+
+def test_group_distance_effects_recover_one_over_d():
+    coef, resid, draws = an.group_distance_effects(_groups_synthetic(contact=False), n_boot=200)
+    li = coef[coef.ion == "Li"].set_index("group")
+    assert li.loc["sulfonate(SO3)", "beta_kjmol_A"] == pytest.approx(-60, abs=15)
+    assert li.loc["halide", "beta_kjmol_A"] == pytest.approx(40, abs=15)
+    assert li.loc["halide", "n_sites_with_group"] < li.loc["sulfonate(SO3)", "n_sites_with_group"]
+    assert {"distance", "partial_residual"} <= set(resid.columns) and len(draws) > 100
+
+
+def test_same_group_pairs_keeps_matching_contacts_only():
+    p = pd.DataFrame({"contact_group@Li": ["a", "b"], "contact_group@NH4": ["a", "c"], "dBE": [1.0, 2.0]})
+    s = an.same_group_pairs(p)
+    assert list(s.contact_group) == ["a"]
